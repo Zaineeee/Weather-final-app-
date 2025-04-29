@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "bolt-expo-starter",
+    "name": "Weather Sphere",
     "slug": "bolt-expo-starter",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -30,6 +30,6 @@
     "plugins": [
       "expo-router"
     ],
-    "scheme": "bolt-expo-starter"
+    "scheme": "Weather Sphere"
   }
 }

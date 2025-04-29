@@ -5,6 +5,7 @@ import { View, ActivityIndicator, Platform } from 'react-native';
 import { useFrameworkReady } from '@/hooks/useFrameworkReady';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
+import { LocationProvider } from '@/lib/context/LocationContext';
 
 export default function RootLayout() {
   useFrameworkReady();
@@ -37,21 +38,23 @@ export default function RootLayout() {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#1c1c1e' }}>
-      <Stack screenOptions={{ headerShown: false }}>
-        {session ? (
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        ) : (
-          <Stack.Screen 
-            name="(auth)" 
-            options={{ 
-              headerShown: false,
-              animation: Platform.OS === 'android' ? 'none' : 'fade'
-            }} 
-          />
-        )}
-      </Stack>
-      <StatusBar style="light" />
-    </View>
+    <LocationProvider>
+      <View style={{ flex: 1, backgroundColor: '#1c1c1e' }}>
+        <Stack screenOptions={{ headerShown: false }}>
+          {session ? (
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          ) : (
+            <Stack.Screen 
+              name="(auth)" 
+              options={{ 
+                headerShown: false,
+                animation: Platform.OS === 'android' ? 'none' : 'fade'
+              }} 
+            />
+          )}
+        </Stack>
+        <StatusBar style="light" />
+      </View>
+    </LocationProvider>
   );
 }

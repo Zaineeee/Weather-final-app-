@@ -1169,6 +1169,7 @@ export default function Profile() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    paddingTop: -75,
   },
   content: {
     flex: 1,

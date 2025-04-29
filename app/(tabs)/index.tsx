@@ -1,7 +1,7 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Cloud, Droplets, Wind, Sun, Eye, Gauge, CloudRain, Moon, Sunrise, Sunset, CloudLightning, CloudSnow, CloudFog } from 'lucide-react-native';
+import { Cloud, Droplets, Wind, Sun, Eye, Gauge, CloudRain, Moon, Sunrise, Sunset, CloudLightning, CloudSnow, CloudFog, Search, X, MapPin } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useState } from 'react';
 import { getWeatherByCoordinates, getForecastByCoordinates, getAirQuality } from '@/lib/services/weather';
@@ -12,6 +12,7 @@ import { WeatherCard } from '@/components/Weather/WeatherCard';
 import { ForecastCard } from '@/components/Weather/ForecastCard';
 import { WeatherData, ForecastData, AirQualityData } from '@/lib/types/weather';
 import Animated from 'react-native-reanimated';
+import { useLocation } from '@/lib/context/LocationContext';
 
 interface ForecastItem {
   dt: number;
@@ -71,115 +72,117 @@ export default function Today() {
   const [error, setError] = useState<string | null>(null);
   const [showExtendedForecast, setShowExtendedForecast] = useState(false);
   const [temperatureUnit, setTemperatureUnit] = useState<'C' | 'F'>('C');
-  const [locationName, setLocationName] = useState<string>('Loading location...');
-  const [location, setLocation] = useState<Location.LocationObject | null>(null);
+  const { location, setLocation } = useLocation();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchResults, setSearchResults] = useState<Array<{ name: string; country: string; lat: number; lon: number }>>([]);
   const [weatherAlerts, setWeatherAlerts] = useState<WeatherAlert[]>([]);
 
-  const getLocationName = async (latitude: number, longitude: number) => {
+  useEffect(() => {
+    if (location) {
+      fetchWeatherData(location.lat, location.lon);
+      fetchWeatherAlerts();
+    }
+  }, [location]);
+
+  const fetchWeatherData = async (latitude: number, longitude: number) => {
     try {
-      const response = await axios.get(
-        `https://api.openweathermap.org/geo/1.0/reverse?lat=${latitude}&lon=${longitude}&limit=1&appid=${process.env.EXPO_PUBLIC_WEATHER_API_KEY}`
-      );
-      if (response.data && response.data.length > 0) {
-        const { name, country } = response.data[0];
-        setLocationName(`${name}, ${country}`);
-      }
+      const weather = await getWeatherByCoordinates(latitude, longitude);
+      const forecast = await getForecastByCoordinates(latitude, longitude);
+      const airQuality = await getAirQuality(latitude, longitude);
+      setWeatherData(weather as WeatherData);
+      setForecastData(forecast as { list: ForecastItem[] });
+      setAirQualityData(airQuality);
     } catch (error) {
-      console.error('Error fetching location name:', error);
+      console.error('Error fetching weather data:', error);
+      setError('Failed to fetch weather data');
+    } finally {
+      setLoading(false);
     }
   };
 
-  useEffect(() => {
-    (async () => {
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        setError('Location permission is required');
-        return;
+  const handleCitySearch = async (query: string) => {
+    setSearchQuery(query);
+    if (query.length >= 2) {
+      try {
+        const response = await axios.get(
+          `https://api.openweathermap.org/geo/1.0/direct?q=${query}&limit=5&appid=${process.env.EXPO_PUBLIC_WEATHER_API_KEY}`
+        );
+        setSearchResults(response.data);
+      } catch (error) {
+        console.error('Error searching for city:', error);
       }
+    } else {
+      setSearchResults([]);
+    }
+  };
 
-      const location = await Location.getCurrentPositionAsync({});
-      setLocation(location);
+  const handleCitySelect = async (lat: number, lon: number, cityName: string, country: string) => {
+    setIsSearching(false);
+    setSearchQuery('');
+    setSearchResults([]);
+    
+    // Update global location context
+    setLocation({
+      lat,
+      lon,
+      name: cityName,
+      country
+    });
+  };
 
-      if (location) {
-        try {
-          const { latitude, longitude } = location.coords;
-          await getLocationName(latitude, longitude);
-          const weather = await getWeatherByCoordinates(latitude, longitude);
-          const forecast = await getForecastByCoordinates(latitude, longitude);
-          const airQuality = await getAirQuality(latitude, longitude);
-          setWeatherData(weather as WeatherData);
-          setForecastData(forecast as { list: ForecastItem[] });
-          setAirQualityData(airQuality);
-        } catch (error) {
-          console.error('Error fetching weather data:', error);
-          setError('Failed to fetch weather data');
-        } finally {
-          setLoading(false);
-        }
-      }
-    })();
-  }, []);
+  const fetchWeatherAlerts = async () => {
+    if (location) {
+      try {
+        const response = await axios.get(
+          `https://api.openweathermap.org/data/2.5/weather?lat=${location.lat}&lon=${location.lon}&appid=${process.env.EXPO_PUBLIC_WEATHER_API_KEY}`
+        );
 
-  useEffect(() => {
-    const fetchWeatherAlerts = async () => {
-      if (location) {
-        try {
-          // First check if we have access to the OneCall API
-          const response = await axios.get(
-            `https://api.openweathermap.org/data/2.5/weather?lat=${location.coords.latitude}&lon=${location.coords.longitude}&appid=${process.env.EXPO_PUBLIC_WEATHER_API_KEY}`
-          );
-
-          // If basic weather call succeeds, check for severe weather
-          if (response.status === 200) {
-            const alerts = [];
-            
-            // Check for extreme temperatures
-            const temp = response.data.main.temp - 273.15; // Convert to Celsius
-            if (temp > 35) {
-              alerts.push({
-                event: 'Extreme Heat Warning',
-                description: 'High temperature conditions. Stay hydrated and avoid prolonged sun exposure.',
-                start: Date.now() / 1000,
-                end: (Date.now() / 1000) + 86400 // 24 hours
-              });
-            } else if (temp < 0) {
-              alerts.push({
-                event: 'Freezing Temperature Alert',
-                description: 'Below freezing temperatures expected. Take precautions against frost and ice.',
-                start: Date.now() / 1000,
-                end: (Date.now() / 1000) + 86400
-              });
-            }
-
-            // Check for severe weather conditions
-            const weatherCondition = response.data.weather[0].main.toLowerCase();
-            if (weatherCondition.includes('thunderstorm')) {
-              alerts.push({
-                event: 'Thunderstorm Warning',
-                description: 'Thunderstorms in the area. Seek indoor shelter and avoid open areas.',
-                start: Date.now() / 1000,
-                end: (Date.now() / 1000) + 7200 // 2 hours
-              });
-            } else if (weatherCondition.includes('rain') && response.data.rain && response.data.rain['1h'] > 10) {
-              alerts.push({
-                event: 'Heavy Rain Alert',
-                description: 'Heavy rainfall may cause flooding in low-lying areas.',
-                start: Date.now() / 1000,
-                end: (Date.now() / 1000) + 7200
-              });
-            }
-
-            setWeatherAlerts(alerts);
+        if (response.status === 200) {
+          const alerts: WeatherAlert[] = [];
+          
+          const temp = response.data.main.temp - 273.15;
+          if (temp > 35) {
+            alerts.push({
+              event: 'Extreme Heat Warning',
+              description: 'High temperature conditions. Stay hydrated and avoid prolonged sun exposure.',
+              start: Date.now() / 1000,
+              end: (Date.now() / 1000) + 86400
+            });
+          } else if (temp < 0) {
+            alerts.push({
+              event: 'Freezing Temperature Alert',
+              description: 'Below freezing temperatures expected. Take precautions against frost and ice.',
+              start: Date.now() / 1000,
+              end: (Date.now() / 1000) + 86400
+            });
           }
-        } catch (error) {
-          console.log('Weather alerts not available for your API subscription level');
-          setWeatherAlerts([]); // Clear any existing alerts
-        }
-      }
-    };
 
-    fetchWeatherAlerts();
-  }, [location]);
+          const weatherCondition = response.data.weather[0].main.toLowerCase();
+          if (weatherCondition.includes('thunderstorm')) {
+            alerts.push({
+              event: 'Thunderstorm Warning',
+              description: 'Thunderstorms in the area. Seek indoor shelter and avoid open areas.',
+              start: Date.now() / 1000,
+              end: (Date.now() / 1000) + 7200
+            });
+          } else if (weatherCondition.includes('rain') && response.data.rain && response.data.rain['1h'] > 10) {
+            alerts.push({
+              event: 'Heavy Rain Alert',
+              description: 'Heavy rainfall may cause flooding in low-lying areas.',
+              start: Date.now() / 1000,
+              end: (Date.now() / 1000) + 7200
+            });
+          }
+
+          setWeatherAlerts(alerts);
+        }
+      } catch (error) {
+        console.log('Weather alerts not available for your API subscription level');
+        setWeatherAlerts([]);
+      }
+    }
+  };
 
   const getWeatherIcon = (description: string) => {
     const lowerDesc = description.toLowerCase();
@@ -995,18 +998,81 @@ export default function Today() {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
+        {/* Search Section */}
+        <View style={styles.searchSection}>
+          {isSearching ? (
+            <View style={styles.searchContainer}>
+              <View style={styles.searchInputContainer}>
+                <Search color="#8e8e93" size={20} />
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Search city..."
+                  placeholderTextColor="#8e8e93"
+                  value={searchQuery}
+                  onChangeText={handleCitySearch}
+                  autoFocus
+                />
+                {searchQuery.length > 0 && (
+                  <TouchableOpacity onPress={() => setSearchQuery('')}>
+                    <X color="#8e8e93" size={20} />
+                  </TouchableOpacity>
+                )}
+              </View>
+              <TouchableOpacity 
+                style={styles.cancelButton} 
+                onPress={() => {
+                  setIsSearching(false);
+                  setSearchQuery('');
+                  setSearchResults([]);
+                }}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <TouchableOpacity 
+              style={styles.searchButton}
+              onPress={() => setIsSearching(true)}
+            >
+              <Search color="#ffffff" size={20} />
+              <Text style={styles.searchButtonText}>Search for a city</Text>
+            </TouchableOpacity>
+          )}
+
+          {/* Search Results */}
+          {isSearching && searchResults.length > 0 && (
+            <View style={styles.searchResults}>
+              {searchResults.map((result, index) => (
+                <TouchableOpacity
+                  key={index}
+                  style={styles.searchResultItem}
+                  onPress={() => handleCitySelect(result.lat, result.lon, result.name, result.country)}
+                >
+                  <MapPin color="#8e8e93" size={16} />
+                  <Text style={styles.searchResultText}>
+                    {result.name}, {result.country}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+        </View>
+
         <View style={styles.header}>
           <View style={styles.locationHeader}>
             <View style={styles.locationInfo}>
-              <Text style={styles.location}>{locationName}</Text>
+              <Text style={styles.location}>
+                {location ? `${location.name}, ${location.country}` : 'Loading location...'}
+              </Text>
               <Text style={styles.coordinates}>
                 {location ? 
-                  `${location.coords.latitude.toFixed(2)}°N, ${location.coords.longitude.toFixed(2)}°E` 
+                  `${location.lat.toFixed(2)}°N, ${location.lon.toFixed(2)}°E` 
                   : ''}
               </Text>
             </View>
             <TimeInfo />
           </View>
+
           <View style={styles.currentWeather}>
             <View style={styles.weatherEffectWrapper}>
               <WeatherEffect 
@@ -1355,6 +1421,8 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#1c1c1e',
+    paddingTop: -75,
+    
   },
   scrollContent: {
     padding: 15,
@@ -1382,7 +1450,7 @@ const styles = StyleSheet.create({
   },
   coordinates: {
     color: '#8e8e93',
-    fontSize: 15,
+    fontSize: 11,
     marginTop: 4,
   },
   currentWeather: {
@@ -1671,9 +1739,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   dayText: {
-    width: 100,
+    width: 125,
     color: '#8e8e93',
-    fontSize: 16,
+    fontSize: 15,
   },
   activeDay: {
     color: '#fff',
@@ -1721,6 +1789,7 @@ const styles = StyleSheet.create({
   detailItem: {
     width: '50%',
     marginBottom: 20,
+    alignItems: 'center',
   },
   detailLabel: {
     color: '#8e8e93',
@@ -1958,5 +2027,75 @@ const styles = StyleSheet.create({
     color: '#8e8e93',
     fontSize: 13,
     marginTop: 4,
+  },
+  searchSection: {
+    marginVertical: 20,
+    padding: 10,
+    backgroundColor: '#2c2c2e',
+    borderRadius: 15,
+  },
+  searchButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#3c3c3e',
+    borderRadius: 10,
+    padding: 12,
+    gap: 10,
+  },
+  searchButtonText: {
+    color: '#8e8e93',
+    fontSize: 16,
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  searchInputContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#3c3c3e',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    height: 44,
+    gap: 10,
+  },
+  searchInput: {
+    flex: 1,
+    color: '#ffffff',
+    fontSize: 16,
+    height: 44,
+  },
+  cancelButton: {
+    paddingHorizontal: 10,
+  },
+  cancelButtonText: {
+    color: '#0a84ff',
+    fontSize: 16,
+  },
+  searchResults: {
+    backgroundColor: '#3c3c3e',
+    borderRadius: 10,
+    marginTop: 10,
+    maxHeight: 200,
+  },
+  searchResultItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#2c2c2e',
+    gap: 10,
+  },
+  searchResultText: {
+    color: '#ffffff',
+    fontSize: 16,
+    flex: 1,
+  },
+  locationButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
 });

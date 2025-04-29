@@ -3,10 +3,10 @@ import { View, Text, StyleSheet, ScrollView, Pressable, Dimensions } from 'react
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Cloud, Droplet, Wind, Sun, CloudRain, CloudLightning, CloudSnow, CloudFog } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import * as Location from 'expo-location';
 import axios from 'axios';
 import Animated from 'react-native-reanimated';
 import { LineChart } from 'react-native-chart-kit';
+import { useLocation } from '@/lib/context/LocationContext';
 
 interface WeatherData {
   main: {
@@ -53,63 +53,40 @@ interface ForecastItem {
 }
 
 export default function Forecast() {
+  const { location, loading: locationLoading, error: locationError } = useLocation();
   const [weatherData, setWeatherData] = useState<WeatherData | null>(null);
   const [forecastData, setForecastData] = useState<{ list: ForecastItem[] } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [locationName, setLocationName] = useState<string>('Loading location...');
-  const [location, setLocation] = useState<Location.LocationObject | null>(null);
-
-  const getLocationName = async (latitude: number, longitude: number) => {
-    try {
-      const response = await axios.get(
-        `https://api.openweathermap.org/geo/1.0/reverse?lat=${latitude}&lon=${longitude}&limit=1&appid=${process.env.EXPO_PUBLIC_WEATHER_API_KEY}`
-      );
-      if (response.data && response.data.length > 0) {
-        const { name, country } = response.data[0];
-        setLocationName(`${name}, ${country}`);
-      }
-    } catch (error) {
-      console.error('Error fetching location name:', error);
-    }
-  };
 
   useEffect(() => {
-    (async () => {
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        setError('Location permission is required');
-        return;
-      }
+    if (location) {
+      fetchWeatherData();
+    }
+  }, [location]);
 
-      const location = await Location.getCurrentPositionAsync({});
-      setLocation(location);
+  const fetchWeatherData = async () => {
+    if (!location) return;
+    
+    try {
+      // Fetch current weather
+      const weatherResponse = await axios.get(
+        `https://api.openweathermap.org/data/2.5/weather?lat=${location.lat}&lon=${location.lon}&units=metric&appid=${process.env.EXPO_PUBLIC_WEATHER_API_KEY}`
+      );
+      setWeatherData(weatherResponse.data);
 
-      if (location) {
-        try {
-          const { latitude, longitude } = location.coords;
-          await getLocationName(latitude, longitude);
-          
-          // Fetch current weather
-          const weatherResponse = await axios.get(
-            `https://api.openweathermap.org/data/2.5/weather?lat=${latitude}&lon=${longitude}&units=metric&appid=${process.env.EXPO_PUBLIC_WEATHER_API_KEY}`
-          );
-          setWeatherData(weatherResponse.data);
-
-          // Fetch forecast data
-          const forecastResponse = await axios.get(
-            `https://api.openweathermap.org/data/2.5/forecast?lat=${latitude}&lon=${longitude}&units=metric&appid=${process.env.EXPO_PUBLIC_WEATHER_API_KEY}`
-          );
-          setForecastData(forecastResponse.data);
-        } catch (error) {
-          console.error('Error fetching weather data:', error);
-          setError('Failed to fetch weather data');
-        } finally {
-          setLoading(false);
-        }
-      }
-    })();
-  }, []);
+      // Fetch forecast data
+      const forecastResponse = await axios.get(
+        `https://api.openweathermap.org/data/2.5/forecast?lat=${location.lat}&lon=${location.lon}&units=metric&appid=${process.env.EXPO_PUBLIC_WEATHER_API_KEY}`
+      );
+      setForecastData(forecastResponse.data);
+    } catch (error) {
+      console.error('Error fetching weather data:', error);
+      setError('Failed to fetch weather data');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const getWeatherIcon = (type: string) => {
     switch (type.toLowerCase()) {
@@ -169,7 +146,7 @@ export default function Forecast() {
     return directions[index];
   };
 
-  if (loading) {
+  if (locationLoading || loading) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
@@ -179,11 +156,11 @@ export default function Forecast() {
     );
   }
 
-  if (error) {
+  if (locationError || error) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>{error}</Text>
+          <Text style={styles.errorText}>{locationError || error}</Text>
         </View>
       </SafeAreaView>
     );
@@ -193,10 +170,12 @@ export default function Forecast() {
     <SafeAreaView style={styles.container}>
       <ScrollView>
         <View style={styles.header}>
-          <Text style={styles.location}>{locationName}</Text>
+          <Text style={styles.location}>
+            {location ? `${location.name}, ${location.country}` : 'Location not available'}
+          </Text>
           <Text style={styles.coordinates}>
             {location ? 
-              `${location.coords.latitude.toFixed(2)}°N, ${location.coords.longitude.toFixed(2)}°E` 
+              `${location.lat.toFixed(2)}°N, ${location.lon.toFixed(2)}°E` 
               : ''}
           </Text>
         </View>
@@ -359,6 +338,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#1c1c1e',
+    paddingTop: -75,
   },
   header: {
     padding: 16,

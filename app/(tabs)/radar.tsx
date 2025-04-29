@@ -1,17 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Image, ActivityIndicator, ScrollView, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import * as Location from 'expo-location';
 import axios from 'axios';
 import { AlertTriangle, MapPin, Clock, ChevronRight, CloudRain, Wind, Thermometer, Cloud, Compass, ArrowUp } from 'lucide-react-native';
 import WebView from 'react-native-webview';
-
-interface LocationData {
-  name: string;
-  country: string;
-  lat: number;
-  lon: number;
-}
+import { useLocation } from '@/lib/context/LocationContext';
 
 interface WeatherData {
   temp: number;
@@ -30,45 +23,26 @@ interface WeatherData {
 export default function Radar() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [locationData, setLocationData] = useState<LocationData | null>(null);
   const [selectedLayer, setSelectedLayer] = useState<'radar' | 'satellite'>('radar');
   const [weatherData, setWeatherData] = useState<WeatherData[]>([]);
+  const { location, loading: locationLoading, error: locationError } = useLocation();
 
   useEffect(() => {
-    fetchLocationAndWeather();
-  }, []);
+    if (location && !locationLoading) {
+      fetchWeatherData();
+    } else if (locationError) {
+      setError(locationError);
+      setLoading(false);
+    }
+  }, [location, locationLoading, locationError]);
 
-  const fetchLocationAndWeather = async () => {
+  const fetchWeatherData = async () => {
+    if (!location) return;
+    
     try {
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        setError('Location permission is required');
-        setLoading(false);
-        return;
-      }
-
-      const location = await Location.getCurrentPositionAsync({});
-      const { latitude, longitude } = location.coords;
-
-      // Fetch both location name and weather data
-      const [locationResponse, weatherResponse] = await Promise.all([
-        axios.get(
-          `https://api.openweathermap.org/geo/1.0/reverse?lat=${latitude}&lon=${longitude}&limit=1&appid=${process.env.EXPO_PUBLIC_WEATHER_API_KEY}`
-        ),
-        axios.get(
-          `https://api.openweathermap.org/data/2.5/forecast?lat=${latitude}&lon=${longitude}&units=metric&appid=${process.env.EXPO_PUBLIC_WEATHER_API_KEY}`
-        )
-      ]);
-
-      if (locationResponse.data && locationResponse.data.length > 0) {
-        const { name, country } = locationResponse.data[0];
-        setLocationData({ 
-          name, 
-          country, 
-          lat: latitude, 
-          lon: longitude 
-        });
-      }
+      const weatherResponse = await axios.get(
+        `https://api.openweathermap.org/data/2.5/forecast?lat=${location.lat}&lon=${location.lon}&units=metric&appid=${process.env.EXPO_PUBLIC_WEATHER_API_KEY}`
+      );
 
       // Process weather data
       if (weatherResponse.data && weatherResponse.data.list) {
@@ -108,7 +82,7 @@ export default function Radar() {
     return directions[index];
   };
 
-  if (loading) {
+  if (loading || locationLoading) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
@@ -119,22 +93,22 @@ export default function Radar() {
     );
   }
 
-  if (error) {
+  if (error || locationError) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>{error}</Text>
+          <Text style={styles.errorText}>{error || locationError}</Text>
         </View>
       </SafeAreaView>
     );
   }
 
   const getEmblemMapUrl = () => {
-    if (!locationData) return '';
+    if (!location) return '';
     const baseUrl = 'https://embed.windy.com/embed2.html';
     const params = new URLSearchParams({
-      lat: locationData.lat.toString(),
-      lon: locationData.lon.toString(),
+      lat: location.lat.toString(),
+      lon: location.lon.toString(),
       zoom: '8',
       overlay: selectedLayer === 'radar' ? 'radar' : 'satellite',
       level: 'surface',
@@ -146,8 +120,8 @@ export default function Radar() {
       type: 'map',
       location: 'coordinates',
       detail: 'false',
-      detailLat: locationData.lat.toString(),
-      detailLon: locationData.lon.toString(),
+      detailLat: location.lat.toString(),
+      detailLon: location.lon.toString(),
       metricWind: 'default',
       metricTemp: 'default',
       product: 'radar',
@@ -163,12 +137,12 @@ export default function Radar() {
         <View style={styles.header}>
           <MapPin size={20} color="#fff" />
           <Text style={styles.location}>
-            {locationData ? `${locationData.name}, ${locationData.country}` : 'Loading location...'}
+            {location ? `${location.name}, ${location.country}` : 'Loading location...'}
           </Text>
         </View>
         
         <View style={styles.mapContainer}>
-          {locationData && (
+          {location && (
             <WebView
               source={{ uri: getEmblemMapUrl() }}
               style={styles.map}
@@ -299,6 +273,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#1c1c1e',
+    paddingTop: -75,
   },
   header: {
     flexDirection: 'row',

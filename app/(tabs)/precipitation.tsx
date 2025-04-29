@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Cloud, CloudRain, CloudLightning, Sun } from 'lucide-react-native';
-import * as Location from 'expo-location';
 import axios from 'axios';
+import { useLocation } from '@/lib/context/LocationContext';
 
 interface ForecastItem {
   dt: number;
@@ -27,26 +27,26 @@ export default function Precipitation() {
   const [error, setError] = useState<string | null>(null);
   const [forecastData, setForecastData] = useState<ForecastItem[]>([]);
   const [locationData, setLocationData] = useState<LocationData | null>(null);
+  const { location, error: locationError, loading: isLoadingLocation } = useLocation();
 
   useEffect(() => {
-    fetchWeatherData();
-  }, []);
+    if (location && !isLoadingLocation) {
+      fetchWeatherData();
+    } else if (locationError) {
+      setError(locationError);
+      setLoading(false);
+    }
+  }, [location, locationError, isLoadingLocation]);
 
   const fetchWeatherData = async () => {
+    if (!location) return;
+    
     try {
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        setError('Location permission is required');
-        setLoading(false);
-        return;
-      }
-
-      const location = await Location.getCurrentPositionAsync({});
-      const { latitude, longitude } = location.coords;
+      const { lat, lon } = location;
 
       // Fetch location name
       const locationResponse = await axios.get(
-        `https://api.openweathermap.org/geo/1.0/reverse?lat=${latitude}&lon=${longitude}&limit=1&appid=${process.env.EXPO_PUBLIC_WEATHER_API_KEY}`
+        `https://api.openweathermap.org/geo/1.0/reverse?lat=${lat}&lon=${lon}&limit=1&appid=${process.env.EXPO_PUBLIC_WEATHER_API_KEY}`
       );
       
       if (locationResponse.data && locationResponse.data.length > 0) {
@@ -56,7 +56,7 @@ export default function Precipitation() {
 
       // Fetch forecast data
       const forecastResponse = await axios.get(
-        `https://api.openweathermap.org/data/2.5/forecast?lat=${latitude}&lon=${longitude}&units=metric&appid=${process.env.EXPO_PUBLIC_WEATHER_API_KEY}`
+        `https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&units=metric&appid=${process.env.EXPO_PUBLIC_WEATHER_API_KEY}`
       );
 
       setForecastData(forecastResponse.data.list);
@@ -205,7 +205,8 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#1c1c1e',
-    padding: 20,
+    padding: 10,
+    paddingTop: -15,
   },
   location: {
     fontSize: 20,
@@ -216,7 +217,7 @@ const styles = StyleSheet.create({
   precipitationChart: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    height: 220,
+    height: 250,
     marginBottom: 20,
     backgroundColor: '#2c2c2e',
     borderRadius: 15,

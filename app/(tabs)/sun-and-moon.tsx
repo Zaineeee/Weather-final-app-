@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Pressable, Animated, Easing } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Sun, Moon, Sunrise, Sunset, MoonStar } from 'lucide-react-native';
-import * as Location from 'expo-location';
 import SunCalc from 'suncalc';
+import { useLocation } from '@/lib/context/LocationContext';
 
 interface SunTimes {
   sunrise: Date;
@@ -21,13 +21,12 @@ interface MoonData {
 
 export default function SunAndMoon() {
   const [selectedDate, setSelectedDate] = useState(new Date());
-  const [location, setLocation] = useState<{ lat: number; lon: number; name: string } | null>(null);
   const [sunTimes, setSunTimes] = useState<SunTimes | null>(null);
   const [moonData, setMoonData] = useState<MoonData | null>(null);
-  const [loading, setLoading] = useState(true);
   const [isNightTime, setIsNightTime] = useState(false);
   const celestialPosition = new Animated.Value(0);
   const fadeAnim = new Animated.Value(1);
+  const { location, loading, error } = useLocation();
 
   // Generate next 7 days
   const DAYS = Array.from({ length: 7 }, (_, i) => {
@@ -41,10 +40,6 @@ export default function SunAndMoon() {
   });
 
   useEffect(() => {
-    fetchLocation();
-  }, []);
-
-  useEffect(() => {
     if (location) {
       calculateCelestialData(selectedDate);
     }
@@ -56,34 +51,6 @@ export default function SunAndMoon() {
     animateCelestialPosition(position);
     animateTransition();
   }, [isNightTime]);
-
-  const fetchLocation = async () => {
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        setLoading(false);
-        return;
-      }
-
-      const location = await Location.getCurrentPositionAsync({});
-      const [address] = await Location.reverseGeocodeAsync({
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude
-      });
-
-      setLocation({
-        lat: location.coords.latitude,
-        lon: location.coords.longitude,
-        name: address?.city && address?.country ? 
-          `${address.city}, ${address.country}` : 
-          'Current Location'
-      });
-    } catch (error) {
-      console.error('Error fetching location:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const calculateCelestialData = (date: Date) => {
     if (!location) return;
@@ -194,6 +161,14 @@ export default function SunAndMoon() {
     return (
       <SafeAreaView style={styles.container}>
         <ActivityIndicator size="large" color="#0a84ff" />
+      </SafeAreaView>
+    );
+  }
+
+  if (error) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <Text style={styles.errorText}>{error}</Text>
       </SafeAreaView>
     );
   }
@@ -335,6 +310,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#1c1c1e',
+    paddingTop: -75,
   },
   mainScroll: {
     flex: 1,
@@ -522,5 +498,11 @@ const styles = StyleSheet.create({
   },
   nightInfoText: {
     color: '#A0A0A0',
+  },
+  errorText: {
+    color: '#fff',
+    fontSize: 16,
+    textAlign: 'center',
+    marginTop: 20,
   },
 });
